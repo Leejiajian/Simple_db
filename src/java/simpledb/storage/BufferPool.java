@@ -1,15 +1,15 @@
 package simpledb.storage;
 
-import simpledb.common.Database;
-import simpledb.common.Permissions;
-import simpledb.common.DbException;
-import simpledb.common.DeadlockException;
+import simpledb.common.*;
 import simpledb.transaction.TransactionAbortedException;
 import simpledb.transaction.TransactionId;
 
 import java.io.*;
 
+import java.util.ArrayList;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * BufferPool manages the reading and writing of pages into memory from
@@ -20,14 +20,19 @@ import java.util.concurrent.ConcurrentHashMap;
  * a page, BufferPool checks that the transaction has the appropriate
  * locks to read/write the page.
  * 
- * @Threadsafe, all fields are final
+page * @Threadsafe, all fields are final
  */
 public class BufferPool {
     /** Bytes per page, including header. */
     private static final int DEFAULT_PAGE_SIZE = 4096;
 
     private static int pageSize = DEFAULT_PAGE_SIZE;
-    
+    //private ArrayList<Page> pages;
+    private ConcurrentHashMap<PageId, Page> pages;
+    private ReadWriteLock rwLock;
+    private int size;
+    private int capacity;
+
     /** Default number of pages passed to the constructor. This is used by
     other classes. BufferPool should use the numPages argument to the
     constructor instead. */
@@ -39,7 +44,10 @@ public class BufferPool {
      * @param numPages maximum number of pages in this buffer pool.
      */
     public BufferPool(int numPages) {
-        // some code goes here
+        pages = new ConcurrentHashMap<>(numPages);
+        this.rwLock = new ReentrantReadWriteLock();
+        size = 0;
+        capacity = numPages;
     }
     
     public static int getPageSize() {
@@ -71,10 +79,26 @@ public class BufferPool {
      * @param pid the ID of the requested page
      * @param perm the requested permissions on the page
      */
+    // 寻找一个页面需要一个锁，锁可能被其他事务所占有。在缓冲池中寻找页面，若存在返回页面，若不存在应该被添加到缓冲池中并返回，
+    // 如果空间不够大，会替换出一个页面，并将该页面加入。tid用来判断该页是否已被改写。// 未实现
     public  Page getPage(TransactionId tid, PageId pid, Permissions perm)
         throws TransactionAbortedException, DbException {
-        // some code goes here
-        return null;
+        // 页在缓冲池中的情况
+        rwLock.readLock().lock();
+        Page result = pages.get(pid);
+        // 相关页不在BufferPool中
+        if(result == null) {
+            if(pages.size() >= pageSize)
+                evictPage();
+            DbFile file = Database.getCatalog().getDatabaseFile(pid.getTableId());
+            result = file.readPage(pid);
+            if(result != null)
+                this.pages.put(pid, result);   // 将新页放入BufferPool中
+        }
+        rwLock.readLock().unlock();
+        return result;
+
+
     }
 
     /**

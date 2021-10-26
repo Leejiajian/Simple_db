@@ -11,6 +11,7 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiConsumer;
 
 /**
  * The Catalog keeps track of all available tables in the database and their
@@ -21,16 +22,31 @@ import java.util.concurrent.ConcurrentHashMap;
  * 
  * @Threadsafe
  */
+// 目录类
 public class Catalog {
 
     /**
      * Constructor.
      * Creates a new, empty catalog.
      */
+    ConcurrentHashMap<Integer, Table> tables;  // <tableId, Table> tableId == DbFileId;
+    int size;
     public Catalog() {
-        // some code goes here
+        tables = new ConcurrentHashMap<>();
+        size = 0;
     }
-
+    public class Table {
+        private DbFile file;
+        private String name;
+        private String primary_key;
+        //private int tableId;
+        public Table(DbFile f, String n, String primary_key) {
+            this.file = f;
+            this.name = n;
+            this.primary_key = primary_key;
+            ++size;
+        }
+    }
     /**
      * Add a new table to the catalog.
      * This table's contents are stored in the specified DbFile.
@@ -40,8 +56,28 @@ public class Catalog {
      * conflict exists, use the last table to be added as the table for a given name.
      * @param pkeyField the name of the primary key field
      */
+    // 要确保添加的table与tables中的ID和name都不相同,删除操作需要判断
     public void addTable(DbFile file, String name, String pkeyField) {
-        // some code goes here
+        try {
+            int id = getTableId(name);
+
+            tables.remove(id);
+        }catch(NoSuchElementException e){
+
+        }
+        tables.put(file.getId(), new Table(file, name, pkeyField));
+        /*for(Table t : tables) {
+            if((t.name != null && t.name.equals(name)) || file.getId() == t.file.getId()){
+                t.name = name;
+                t.primary_key = pkeyField;
+                t.file = file;
+                return;
+            }
+        }
+        tables.add(new Table(file, name, pkeyField));
+        ++size;
+
+         */
     }
 
     public void addTable(DbFile file, String name) {
@@ -64,8 +100,12 @@ public class Catalog {
      * @throws NoSuchElementException if the table doesn't exist
      */
     public int getTableId(String name) throws NoSuchElementException {
-        // some code goes here
-        return 0;
+        if(name == null) throw new NoSuchElementException();
+        for(Integer tableId : tables.keySet()){
+            if(name.equals(tables.get(tableId).name))
+                return tableId;
+        }
+        throw new NoSuchElementException();
     }
 
     /**
@@ -75,8 +115,11 @@ public class Catalog {
      * @throws NoSuchElementException if the table doesn't exist
      */
     public TupleDesc getTupleDesc(int tableid) throws NoSuchElementException {
-        // some code goes here
-        return null;
+        for(Integer tableId : tables.keySet()) {
+            if(tableId == tableid)
+                return tables.get(tableId).file.getTupleDesc();;
+        }
+        throw new NoSuchElementException("No Such Table");
     }
 
     /**
@@ -86,13 +129,20 @@ public class Catalog {
      *     function passed to addTable
      */
     public DbFile getDatabaseFile(int tableid) throws NoSuchElementException {
-        // some code goes here
-        return null;
+        for(Integer tableId : tables.keySet()) {
+            if(tableId == tableid)
+                return tables.get(tableId).file;
+        }
+        throw new NoSuchElementException("No Such DatabaseFile");
     }
 
     public String getPrimaryKey(int tableid) {
-        // some code goes here
-        return null;
+        for(Integer tableId : tables.keySet()) {
+            if(tableId == tableid)
+                return tables.get(tableId).primary_key;
+        }
+        throw new NoSuchElementException("No Such DatabaseFile");
+
     }
 
     public Iterator<Integer> tableIdIterator() {
@@ -101,13 +151,17 @@ public class Catalog {
     }
 
     public String getTableName(int id) {
-        // some code goes here
-        return null;
+        for(Integer tableId : tables.keySet()) {
+            if(tableId == id)
+                return tables.get(tableId).name;
+        }
+        throw new NoSuchElementException("No Such Table");
     }
     
     /** Delete all tables from the catalog */
     public void clear() {
-        // some code goes here
+        tables.clear();
+        size = 0;
     }
     
     /**

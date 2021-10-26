@@ -72,8 +72,10 @@ public class HeapPage implements Page {
         @return the number of tuples on this page
     */
     private int getNumTuples() {        
-        // some code goes here
-        return 0;
+        int tableId = pid.getTableId();
+        int tupleSize = Database.getCatalog().getTupleDesc(tableId).getSize();
+         return (int)Math.floor((BufferPool.getPageSize()*8) / (float)(tupleSize * 8 + 1));
+
 
     }
 
@@ -82,10 +84,8 @@ public class HeapPage implements Page {
      * @return the number of bytes in the header of a page in a HeapFile with each tuple occupying tupleSize bytes
      */
     private int getHeaderSize() {        
-        
-        // some code goes here
-        return 0;
-                 
+        int headerBytes = (int)Math.ceil(getNumTuples()/(double)8); // 换算成位，header中每位表示一个tuple的状态
+        return headerBytes;
     }
     
     /** Return a view of this page before it was modified
@@ -117,8 +117,7 @@ public class HeapPage implements Page {
      * @return the PageId associated with this page.
      */
     public HeapPageId getId() {
-    // some code goes here
-    throw new UnsupportedOperationException("implement this");
+        return this.pid;
     }
 
     /**
@@ -287,16 +286,32 @@ public class HeapPage implements Page {
      * Returns the number of empty slots on this page.
      */
     public int getNumEmptySlots() {
-        // some code goes here
-        return 0;
+        int result = 0;
+        int numTuple = this.getNumTuples();
+        int numHeader = this.getHeaderSize();
+        int extraSlots = numHeader * 8 - numTuple;  // 最后一个字节中不存在的元素个数
+        int cnt  = 0;
+        for(int i = 0; i < header.length; ++i) {
+            for(int j = 0; j < 8; ++j) {
+                int bits = (header[i] >> j) & (0x1);
+                if(bits == 1) result += 1;
+                ++cnt;
+                if(cnt == numTuple) return (numTuple - result);  // 跳过多余的slot
+            }
+        }
+        return numTuple - result;
     }
 
     /**
      * Returns true if associated slot on this page is filled.
      */
+
     public boolean isSlotUsed(int i) {
-        // some code goes here
-        return false;
+        if(i >= getNumTuples() ||  i < 0) return false;
+        int headerIndex = i / 8;
+        int shift = i % 8;
+        int bits = (header[headerIndex] >> shift) & (0x1);
+        return bits == 1;
     }
 
     /**
@@ -312,8 +327,41 @@ public class HeapPage implements Page {
      * (note that this iterator shouldn't return tuples in empty slots!)
      */
     public Iterator<Tuple> iterator() {
-        // some code goes here
-        return null;
+        return new TupleIterator();
+    }
+    private class TupleIterator implements Iterator<Tuple> {
+        private int pos = 0;
+        public TupleIterator() {
+            int flag = 0;
+            for(int i = 0; i < numSlots; ++i) {
+                if(isSlotUsed(i)){
+                    flag = 1;
+                    pos = i;
+                    break;
+                }
+            }
+            if(flag == 0) pos = numSlots;  // 判断tuple是否都是null
+        }
+        public boolean hasNext(){
+            return pos <= (numSlots - 1);
+        }
+        public Tuple next(){
+            Tuple returnItem = tuples[pos];
+            if(pos == numSlots - 1) {
+                ++pos;
+                return returnItem;
+            }
+            int flag = 0;
+            for(int i = pos+1; i < numSlots; ++i) {
+                if(isSlotUsed(i)){
+                    flag = 1;
+                    pos = i;
+                    break;
+                }
+            }
+            if(flag == 0) pos = numSlots; // 判断是否tuple是否都是null
+            return returnItem;
+        }
     }
 
 }
