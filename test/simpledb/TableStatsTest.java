@@ -45,7 +45,10 @@ public class TableStatsTest extends SimpleDbTestBase {
 			String tableName = SystemTestUtil.getUUID();
 			Database.getCatalog().addTable(hf, tableName);
 			int tableId = Database.getCatalog().getTableId(tableName);
-			ret[i] = (new TableStats(tableId, ioCosts[i])).estimateScanCost();
+			//
+			TableStats t = (new TableStats(tableId, ioCosts[i]));
+			//ret[i] = (new TableStats(tableId, ioCosts[i])).estimateScanCost();
+			ret[i] = t.estimateScanCost();
 		}
 		return ret;
 	}

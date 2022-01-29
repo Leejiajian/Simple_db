@@ -42,6 +42,7 @@ public class BTreeEntry implements Serializable {
 	/**
 	 * The record id of this entry
 	 * */
+	// 用来标识BTreEntry在哪个页上
 	private RecordId rid; // null if not stored on any page
 
 	/**
@@ -128,7 +129,6 @@ public class BTreeEntry implements Serializable {
 	public void setRecordId(RecordId rid) {
 		this.rid = rid;
 	}
-	
 	/**
 	 * Prints a representation of this BTreeEntry
 	 */

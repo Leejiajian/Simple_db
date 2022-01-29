@@ -17,7 +17,6 @@ public class Project extends Operator {
     private OpIterator child;
     private final TupleDesc td;
     private final List<Integer> outFieldIds;
-
     /**
      * Constructor accepts a child operator to read tuples to apply projection
      * to and a list of fields in output tuple

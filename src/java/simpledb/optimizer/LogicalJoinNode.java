@@ -2,7 +2,7 @@ package simpledb.optimizer;
 
 import simpledb.execution.Predicate;
 
-/** A LogicalJoinNode represens the state needed of a join of two
+/** A LogicalJoinNode represents the state needed of a join of two
  * tables in a LogicalQueryPlan */
 public class LogicalJoinNode {
 
@@ -33,7 +33,7 @@ public class LogicalJoinNode {
         t2Alias = table2;
         String[] tmps = joinField1.split("[.]");
         if (tmps.length>1)
-            f1PureName = tmps[tmps.length-1];
+            f1PureName = tmps[tmps.length-1];   // 获得Field名字
         else
             f1PureName=joinField1;
         tmps = joinField2.split("[.]");

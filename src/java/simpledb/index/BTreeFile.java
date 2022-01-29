@@ -32,6 +32,7 @@ public class BTreeFile implements DbFile {
 	private final TupleDesc td;
 	private final int tableid ;
 	private final int keyField;
+	private Field f1;
 
 	/**
 	 * Constructs a B+ tree file backed by the specified file.
@@ -184,13 +185,59 @@ public class BTreeFile implements DbFile {
 	 * @return the left-most leaf page possibly containing the key field f
 	 * 
 	 */
-	private BTreeLeafPage findLeafPage(TransactionId tid, Map<PageId, Page> dirtypages, BTreePageId pid, Permissions perm,
+
+	private BTreeLeafPage findLeafPage(TransactionId tid, Map<PageId, Page> dirtypages,
+									   BTreePageId pid, Permissions perm,
                                        Field f)
 					throws DbException, TransactionAbortedException {
 		// some code goes here
-        return null;
+		// 中间节点
+		if (pid.pgcateg() == BTreePageId.INTERNAL) {
+			BTreeInternalPage internalPage = (BTreeInternalPage) getPage(tid,
+					dirtypages, pid, Permissions.READ_ONLY);
+			// BTreeInternalPage里的BTreeEntry(相当于是一个左右PageId以及Key的结构体), 遍历整个页中的每个BTreeEntry
+			Iterator<BTreeEntry> it = internalPage.iterator();
+			// 当查找的值为null, 递归获取最左边的元素
+			if (f == null) {
+				while(it.hasNext()) {
+					BTreeEntry entry = it.next();
+					Permissions pe = entry.getLeftChild().pgcateg() ==
+							BTreePageId.LEAF ? Permissions.READ_WRITE : Permissions.READ_ONLY;
+					return findLeafPage(tid, dirtypages, entry.getLeftChild(), pe, f);
+				}
+			}
+			// 不空的时候需要找到最小的i使得 Ki >= Key
+			else{
+				int searchVal = ((IntField)f).getValue();
+				while(it.hasNext()) {
+					BTreeEntry entry = it.next();
+					IntField key = (IntField) (entry.getKey());
+					//不空的时候需要找到最小的i使得 Ki >= Key
+					if(key.getValue() >= searchVal) {
+						Permissions pe = entry.getLeftChild().pgcateg() ==
+								BTreePageId.LEAF ? Permissions.READ_WRITE : Permissions.READ_ONLY;
+						return findLeafPage(tid, dirtypages, entry.getLeftChild(), pe, f);
+					}
+					// 招不到的时候，就需要找到最后一个entry的右指针
+					if(!it.hasNext()) {
+						Permissions pe = entry.getLeftChild().pgcateg() ==
+								BTreePageId.LEAF ? Permissions.READ_WRITE : Permissions.READ_ONLY;
+						return findLeafPage(tid, dirtypages, entry.getRightChild(), pe, f);
+					}
+				}
+			}
+		}
+			// 递归终点，当它到达叶页,得到叶页并加入脏页中，设置权限为READ_WRITE.
+		else {
+				BTreeLeafPage leafPage = (BTreeLeafPage) getPage(tid, dirtypages, pid, Permissions.READ_WRITE);
+				dirtypages.put(pid, leafPage);//
+				return leafPage;
+		}
+		// 如果走到这，就说明出现了问题
+		throw new DbException("error");
 	}
-	
+
+
 	/**
 	 * Convenience method to find a leaf page when there is no dirtypages HashMap.
 	 * Used by the BTreeFile iterator.
@@ -239,8 +286,10 @@ public class BTreeFile implements DbFile {
 		// the new entry.  getParentWithEmtpySlots() will be useful here.  Don't forget to update
 		// the sibling pointers of all the affected leaf pages.  Return the page into which a 
 		// tuple with the given key field should be inserted.
-        return null;
-		
+		//1.新建一个新的空页面
+
+		return null;
+
 	}
 	
 	/**
@@ -299,14 +348,12 @@ public class BTreeFile implements DbFile {
 	 */
 	private BTreeInternalPage getParentWithEmptySlots(TransactionId tid, Map<PageId, Page> dirtypages,
 			BTreePageId parentId, Field field) throws DbException, IOException, TransactionAbortedException {
-		
 		BTreeInternalPage parent = null;
-		
 		// create a parent node if necessary
 		// this will be the new root of the tree
+		// 如果父节点是根，那么需要得到新的根节点。
 		if(parentId.pgcateg() == BTreePageId.ROOT_PTR) {
 			parent = (BTreeInternalPage) getEmptyPage(tid, dirtypages, BTreePageId.INTERNAL);
-
 			// update the root pointer
 			BTreeRootPtrPage rootPtr = (BTreeRootPtrPage) getPage(tid, dirtypages,
 					BTreeRootPtrPage.getId(tableid), Permissions.READ_WRITE);
@@ -927,7 +974,6 @@ public class BTreeFile implements DbFile {
 		// create the new page
 		int emptyPageNo = getEmptyPageNo(tid, dirtypages);
 		BTreePageId newPageId = new BTreePageId(tableid, emptyPageNo, pgcateg);
-		
 		// write empty page to disk
 		RandomAccessFile rf = new RandomAccessFile(f, "rw");
 		rf.seek(BTreeRootPtrPage.getPageSize() + (long) (emptyPageNo - 1) * BufferPool.getPageSize());

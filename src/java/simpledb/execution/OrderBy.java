@@ -17,8 +17,8 @@ public class OrderBy extends Operator {
     private OpIterator child;
     private final TupleDesc td;
     private final List<Tuple> childTups = new ArrayList<>();
-    private final int orderByField;
-    private final String orderByFieldName;
+    private final int orderByField;             // 是一个位置的域号
+    private final String orderByFieldName;      // 对应的位号
     private Iterator<Tuple> it;
     private final boolean asc;
 
@@ -74,8 +74,8 @@ public class OrderBy extends Operator {
         super.close();
         it = null;
     }
-
     public void rewind() {
+
         it = childTups.iterator();
     }
 

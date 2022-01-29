@@ -109,8 +109,19 @@ public class Tuple implements Serializable {
      * */
     public Iterator<Field> fields()
     {
-        // some code goes here
-        return null;
+        return new Iterator<Field>() {
+            private int pos = 0;
+
+            @Override
+            public boolean hasNext() {
+                return fields.length > pos;
+            }
+
+            @Override
+            public Field next() {
+                return fields[pos++];
+            }
+        };
     }
 
     /**

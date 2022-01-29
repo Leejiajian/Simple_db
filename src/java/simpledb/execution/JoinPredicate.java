@@ -2,17 +2,15 @@ package simpledb.execution;
 
 import simpledb.storage.Field;
 import simpledb.storage.Tuple;
-
 import java.io.Serializable;
-
 /**
  * JoinPredicate compares fields of two tuples using a predicate. JoinPredicate
  * is most likely used by the Join operator.
  */
 public class JoinPredicate implements Serializable {
-
     private static final long serialVersionUID = 1L;
-
+    private int field1, field2;
+    Predicate.Op operation;
     /**
      * Constructor -- create a new predicate over two fields of two tuples.
      * 
@@ -28,7 +26,9 @@ public class JoinPredicate implements Serializable {
      * @see Predicate
      */
     public JoinPredicate(int field1, Predicate.Op op, int field2) {
-        // some code goes here
+        this.field1 = field1;
+        this.field2 = field2;
+        this.operation = op;
     }
 
     /**
@@ -38,25 +38,21 @@ public class JoinPredicate implements Serializable {
      * @return true if the tuples satisfy the predicate.
      */
     public boolean filter(Tuple t1, Tuple t2) {
-        // some code goes here
-        return false;
+        return t1.getField(field1).compare(this.operation, t2.getField(field2));
     }
     
     public int getField1()
     {
-        // some code goes here
-        return -1;
+        return this.field1;
     }
     
     public int getField2()
     {
-        // some code goes here
-        return -1;
+        return this.field2;
     }
     
     public Predicate.Op getOperator()
     {
-        // some code goes here
-        return null;
+        return this.operation;
     }
 }

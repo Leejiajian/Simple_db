@@ -6,7 +6,9 @@ import simpledb.execution.Predicate;
 import simpledb.execution.SeqScan;
 import simpledb.storage.*;
 import simpledb.transaction.Transaction;
+import simpledb.transaction.TransactionId;
 
+import java.io.File;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
@@ -20,10 +22,23 @@ import java.util.concurrent.ConcurrentMap;
  * This class is not needed in implementing lab1 and lab2.
  */
 public class TableStats {
-
+    // key:tableName value: TableStats
     private static final ConcurrentMap<String, TableStats> statsMap = new ConcurrentHashMap<>();
 
-    static final int IOCOSTPERPAGE = 1000;
+    static final int IOCOSTPERPAGE = 1000; // IO cost per page
+
+
+
+    private int numTuple, numPage;
+    private int ioCostPerPage;
+    private DbFile dbfile;
+    private int tableId;
+    private int numField;
+    int[] maxArr = new int[numField];
+    int[] minArr = new int[numField];
+    ConcurrentHashMap<Integer, IntHistogram> intHistogramConcurrentHashMap;
+    ConcurrentHashMap<Integer, StringHistogram> stringHistogramConcurrentHashMap;
+
 
     public static TableStats getTableStats(String tablename) {
         return statsMap.get(tablename);
@@ -51,11 +66,10 @@ public class TableStats {
 
     public static void computeStatistics() {
         Iterator<Integer> tableIt = Database.getCatalog().tableIdIterator();
-
         System.out.println("Computing table stats.");
         while (tableIt.hasNext()) {
             int tableid = tableIt.next();
-            TableStats s = new TableStats(tableid, IOCOSTPERPAGE);
+            TableStats s = new TableStats(tableid, IOCOSTPERPAGE);          // 初始化这个东西, 要干什么？
             setTableStats(Database.getCatalog().getTableName(tableid), s);
         }
         System.out.println("Done.");
@@ -79,14 +93,81 @@ public class TableStats {
      *            sequential-scan IO and disk seeks.
      */
     public TableStats(int tableid, int ioCostPerPage) {
-        // For this function, you'll have to get the
-        // DbFile for the table in question,
-        // then scan through its tuples and calculate
-        // the values that you need.
-        // You should try to do this reasonably efficiently, but you don't
-        // necessarily have to (for example) do everything
-        // in a single scan of the table.
-        // some code goes here
+        intHistogramConcurrentHashMap = new ConcurrentHashMap<>();
+        stringHistogramConcurrentHashMap = new ConcurrentHashMap<>();
+        this.tableId = tableid;
+        this.ioCostPerPage = ioCostPerPage;
+        this.dbfile= Database.getCatalog().getDatabaseFile(tableid);
+        TupleDesc td = dbfile.getTupleDesc();
+        this.numField  = td.numFields();        // 域的数量
+        this.numTuple = 0;                      // 统计表中所有的tuple数量
+        this.numPage = ((HeapFile)dbfile).numPages();//表中所有的页数
+        // 表示每个域最大最小值的数组
+        maxArr = new int[numField];//
+        minArr = new int[numField];//
+        //将数组初始化
+        for(int i = 0; i < numField; ++i) {
+            maxArr[i] =  Integer.MIN_VALUE;
+            minArr[i] = Integer.MAX_VALUE;
+        }
+        Type[] types = new Type[numField];
+        for(int i = 0; i < types.length; ++i)
+            types[i] = td.getFieldType(i);
+        SeqScan seqScan = new SeqScan(new TransactionId(), tableid, "");
+        // 第一遍扫描得到最大最小值的数组
+        try{
+            seqScan.open();
+            while(seqScan.hasNext()) {
+                Tuple nowTuple = seqScan.next();
+                this.numTuple += 1;
+                // i:the index of field, 遍历这个tuple的每个Field
+                for(int i = 0; i < numField; ++i) {
+                    if(td.getFieldType(i).equals(Type.STRING_TYPE))
+                        continue;
+                    // IntField 更新 max 和 min
+                    if(td.getFieldType(i).equals(Type.INT_TYPE)){
+                        int val = ((IntField)nowTuple.getField(i)).getValue();
+                        if(maxArr[i] < val)
+                            maxArr[i] = val;
+                        if(minArr[i] > val)
+                            minArr[i] = val;
+
+                    }
+                }
+            }
+            seqScan.rewind();
+        }catch(Exception ex) {
+            ex.printStackTrace();
+        }
+        for(int i = 0; i < this.numField; ++i) {
+            if(types[i].equals(Type.INT_TYPE)) {
+                IntHistogram intHistogram = new IntHistogram(NUM_HIST_BINS, minArr[i], maxArr[i]);
+                intHistogramConcurrentHashMap.put(i, intHistogram);
+            }
+            if(types[i].equals(Type.STRING_TYPE)){
+                StringHistogram stringHistogram = new StringHistogram(NUM_HIST_BINS);
+                stringHistogramConcurrentHashMap.put(i, stringHistogram);
+            }
+        }
+        // 将所有的value加入直方图中
+        try{
+            while(seqScan.hasNext()) {
+                Tuple nowTuple = seqScan.next();
+                for(int i = 0; i < numField; ++i) {
+                    if(types[i].equals(Type.INT_TYPE)) {
+                        int val = ((IntField)nowTuple.getField(i)).getValue();
+                        intHistogramConcurrentHashMap.get(i).addValue(val);
+                    }
+                    else if(types[i].equals(Type.STRING_TYPE)) {
+                        String strVal = ((StringField)nowTuple.getField(i)).getValue();
+                        stringHistogramConcurrentHashMap.get(i).addValue(strVal);
+                    }
+                }
+            }
+            seqScan.close();
+        }catch(Exception ex) {
+            ex.printStackTrace();
+        }
     }
 
     /**
@@ -102,8 +183,7 @@ public class TableStats {
      * @return The estimated cost of scanning the table.
      */
     public double estimateScanCost() {
-        // some code goes here
-        return 0;
+        return this.numPage * this.ioCostPerPage;
     }
 
     /**
@@ -117,7 +197,8 @@ public class TableStats {
      */
     public int estimateTableCardinality(double selectivityFactor) {
         // some code goes here
-        return 0;
+        double cardinality = numTuple * selectivityFactor;
+        return (int) cardinality;
     }
 
     /**
@@ -130,9 +211,16 @@ public class TableStats {
      * tuple, of which we do not know the value of the field, return the
      * expected selectivity. You may estimate this value from the histograms.
      * */
+    //
     public double avgSelectivity(int field, Predicate.Op op) {
-        // some code goes here
-        return 1.0;
+        int cnt = 0;
+        double sum = 0.0;
+        for(int i = minArr[field]; i <= maxArr[field]; ++i) {
+            sum += estimateSelectivity(field, op, new IntField(i));
+            ++cnt;
+        }
+        return sum / cnt;
+
     }
 
     /**
@@ -149,16 +237,24 @@ public class TableStats {
      *         predicate
      */
     public double estimateSelectivity(int field, Predicate.Op op, Field constant) {
-        // some code goes here
-        return 1.0;
+        // field:域的索引 op:操作
+        double result = 0;
+        if(constant instanceof IntField) {
+            result = intHistogramConcurrentHashMap.get(field).
+                    estimateSelectivity(op, ((IntField) constant).getValue());
+        }
+        else if(constant instanceof StringField){
+            result = stringHistogramConcurrentHashMap.
+                    get(field).estimateSelectivity(op, ((StringField) constant).getValue());
+        }
+        return result;
     }
 
     /**
      * return the total number of tuples in this table
      * */
     public int totalTuples() {
-        // some code goes here
-        return 0;
+        return numTuple;
     }
 
 }

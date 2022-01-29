@@ -1,19 +1,19 @@
 package simpledb.execution;
-
 import simpledb.transaction.TransactionAbortedException;
 import simpledb.common.DbException;
 import simpledb.storage.Tuple;
 import simpledb.storage.TupleDesc;
-
 import java.util.*;
-
 /**
  * Filter is an operator that implements a relational select.
  */
 public class Filter extends Operator {
-
     private static final long serialVersionUID = 1L;
-
+    private Predicate pred;
+    private final TupleDesc td;
+    private OpIterator child;
+    //private Iterator<Tuple> it;
+    private final List<Tuple> childTups = new ArrayList<>();
     /**
      * Constructor accepts a predicate to apply and a child operator to read
      * tuples to filter from.
@@ -24,30 +24,37 @@ public class Filter extends Operator {
      *            The child operator
      */
     public Filter(Predicate p, OpIterator child) {
-        // some code goes here
+        this.child = child;
+        this.td = child.getTupleDesc();
+        pred = p;
+
     }
 
     public Predicate getPredicate() {
-        // some code goes here
-        return null;
+        return pred;
     }
 
     public TupleDesc getTupleDesc() {
-        // some code goes here
-        return null;
+        return td;
     }
 
     public void open() throws DbException, NoSuchElementException,
             TransactionAbortedException {
-        // some code goes here
+        child.open();
+        super.open();                       // 为什么这个要打开
+        //it = childTups.iterator();
     }
 
     public void close() {
-        // some code goes here
+        super.close();
+        child.close();
+        //it = null;
     }
 
     public void rewind() throws DbException, TransactionAbortedException {
-        // some code goes here
+        child.close();
+        child.open();
+        //it = childTups.iterator();
     }
 
     /**
@@ -61,19 +68,26 @@ public class Filter extends Operator {
      */
     protected Tuple fetchNext() throws NoSuchElementException,
             TransactionAbortedException, DbException {
-        // some code goes here
+        while (child.hasNext()) {
+            Tuple nowTuple = child.next();
+            if(pred.filter(nowTuple)) {
+                childTups.add(nowTuple);
+                //it = childTups.iterator();
+                return nowTuple;
+            }
+        }
         return null;
     }
 
     @Override
     public OpIterator[] getChildren() {
-        // some code goes here
-        return null;
+        return new OpIterator[]{this.child};
     }
 
     @Override
     public void setChildren(OpIterator[] children) {
-        // some code goes here
+        if(this.child != children[0])
+            this.child = children[0];
     }
 
 }

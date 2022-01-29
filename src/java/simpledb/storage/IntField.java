@@ -26,7 +26,6 @@ public class IntField implements Field {
     public IntField(int i) {
         value = i;
     }
-
     public String toString() {
         return Integer.toString(value);
     }

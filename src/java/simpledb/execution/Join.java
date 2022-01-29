@@ -13,6 +13,13 @@ import java.util.*;
 public class Join extends Operator {
 
     private static final long serialVersionUID = 1L;
+    private JoinPredicate jP;
+    private OpIterator child1, child2;
+    private TupleDesc td;
+    private List<Tuple> childTups = new ArrayList<>();
+    private Tuple nextTup1, nextTup2;
+    private boolean isFirst = true;
+
 
     /**
      * Constructor. Accepts two children to join and the predicate to join them
@@ -26,12 +33,14 @@ public class Join extends Operator {
      *            Iterator for the right(inner) relation to join
      */
     public Join(JoinPredicate p, OpIterator child1, OpIterator child2) {
-        // some code goes here
+        this.jP= p;
+        this.child1 = child1;
+        this.child2 = child2;
+        this.td = getTupleDesc();
     }
 
     public JoinPredicate getJoinPredicate() {
-        // some code goes here
-        return null;
+        return this.jP;
     }
 
     /**
@@ -40,8 +49,9 @@ public class Join extends Operator {
      *       alias or table name.
      * */
     public String getJoinField1Name() {
-        // some code goes here
-        return null;
+        int field1 = jP.getField1();        // 得到相关域的索引
+        return child1.getTupleDesc().getFieldName(field1);
+
     }
 
     /**
@@ -50,8 +60,8 @@ public class Join extends Operator {
      *       alias or table name.
      * */
     public String getJoinField2Name() {
-        // some code goes here
-        return null;
+        int field2 = jP.getField2();
+        return child2.getTupleDesc().getFieldName(field2);
     }
 
     /**
@@ -59,21 +69,28 @@ public class Join extends Operator {
      *      implementation logic.
      */
     public TupleDesc getTupleDesc() {
-        // some code goes here
-        return null;
+        TupleDesc newTupleDesc;
+        newTupleDesc = TupleDesc.merge(child1.getTupleDesc(), child2.getTupleDesc());
+        return newTupleDesc;
     }
 
     public void open() throws DbException, NoSuchElementException,
             TransactionAbortedException {
-        // some code goes here
+        child1.open();
+        child2.open();
+        super.open();
     }
 
     public void close() {
-        // some code goes here
+        super.close();
+        child1.close();
+        child2.close();
     }
 
     public void rewind() throws DbException, TransactionAbortedException {
-        // some code goes here
+        this.close();
+        this.open();
+
     }
 
     /**
@@ -95,19 +112,40 @@ public class Join extends Operator {
      * @see JoinPredicate#filter
      */
     protected Tuple fetchNext() throws TransactionAbortedException, DbException {
-        // some code goes here
+        Tuple nowTuple = null;
+        while(child1.hasNext() || child2.hasNext()) {
+            if(isFirst || !child2.hasNext()) {
+                isFirst = false;
+                nextTup1 = child1.next();
+                if(!child2.hasNext())
+                    child2.rewind();
+            }
+            while(child2.hasNext()) {
+                nextTup2 = child2.next();
+                if(jP.filter(nextTup1, nextTup2)) {
+                    nowTuple = new Tuple(getTupleDesc());
+                    int len1 = nextTup1.getTupleDesc().numFields();
+                    for (int i = 0; i < td.numFields(); ++i) {
+                        if (i < len1)
+                            nowTuple.setField(i, nextTup1.getField(i));
+                        else
+                            nowTuple.setField(i, nextTup2.getField(i - len1));
+                    }
+                    childTups.add(nowTuple);
+                    return nowTuple;
+                }
+            }
+        }
         return null;
     }
-
     @Override
     public OpIterator[] getChildren() {
-        // some code goes here
-        return null;
+        return new OpIterator[]{child1, child2};
     }
 
     @Override
     public void setChildren(OpIterator[] children) {
-        // some code goes here
+        if(children[0] != child1) child1 = children[0];
+        if(children[1] != child2) child2 = children[1];
     }
-
 }

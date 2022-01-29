@@ -9,6 +9,7 @@ import java.util.*;
 
 import javax.swing.*;
 import javax.swing.tree.*;
+import javax.xml.crypto.Data;
 
 /**
  * The JoinOptimizer class is responsible for ordering a series of joins
@@ -107,12 +108,12 @@ public class JoinOptimizer {
      *            A LogicalJoinNode representing the join operation being
      *            performed.
      * @param card1
-     *            Estimated cardinality of the left-hand side of the query
+     *            Estimated cardinality of the left-hand side of the query  查询左侧的估计基数
      * @param card2
-     *            Estimated cardinality of the right-hand side of the query
+     *            Estimated cardinality of the right-hand side of the query 查询右侧的估计基数
      * @param cost1
      *            Estimated cost of one full scan of the table on the left-hand
-     *            side of the query
+     *            side of the query             对查询左侧的表进行一次完整扫描的估计成本
      * @param cost2
      *            Estimated cost of one full scan of the table on the right-hand
      *            side of the query
@@ -129,8 +130,8 @@ public class JoinOptimizer {
             // Insert your code here.
             // HINT: You may need to use the variable "j" if you implemented
             // a join algorithm that's more complicated than a basic
-            // nested-loops join.
-            return -1.0;
+            // nested-loops join.  根据markdown的公式来推
+            return (cost1 + card1 * cost2 + card1 * card2);
         }
     }
 
@@ -141,7 +142,7 @@ public class JoinOptimizer {
      * @param j
      *            A LogicalJoinNode representing the join operation being
      *            performed.
-     * @param card1
+     * @param card1 : the left table the number of tuples
      *            Cardinality of the left-hand table in the join
      * @param card2
      *            Cardinality of the right-hand table in the join
@@ -163,19 +164,33 @@ public class JoinOptimizer {
             return estimateTableJoinCardinality(j.p, j.t1Alias, j.t2Alias,
                     j.f1PureName, j.f2PureName, card1, card2, t1pkey, t2pkey,
                     stats, p.getTableAliasToIdMapping());
+
         }
     }
-
     /**
      * Estimate the join cardinality of two tables.
      * */
-    public static int estimateTableJoinCardinality(Predicate.Op joinOp,
-                                                   String table1Alias, String table2Alias, String field1PureName,
-                                                   String field2PureName, int card1, int card2, boolean t1pkey,
-                                                   boolean t2pkey, Map<String, TableStats> stats,
-                                                   Map<String, Integer> tableAliasToId) {
+    public static int estimateTableJoinCardinality
+    (Predicate.Op joinOp,
+     String table1Alias, String table2Alias, String field1PureName,
+     String field2PureName, int card1, int card2, boolean t1pkey,
+     boolean t2pkey, Map<String, TableStats> stats,
+     Map<String, Integer> tableAliasToId) {
         int card = 1;
         // some code goes here
+        if(joinOp.equals(Predicate.Op.EQUALS)) {
+            if(t1pkey)
+                card = card2;
+            else if(t2pkey)
+                card = card1;
+            else{
+                card = card1 > card2 ? card1 : card2;
+            }
+        }
+        else{
+            card = (int) (0.3 * (card1 * card2));
+            card = Math.max(Math.max(card1,card2), card);
+        }
         return card <= 0 ? 1 : card;
     }
 
@@ -189,12 +204,12 @@ public class JoinOptimizer {
      *            The size of the subsets of interest
      * @return a set of all subsets of the specified size
      */
+    // 枚举形成所有的子集
     public <T> Set<Set<T>> enumerateSubsets(List<T> v, int size) {
         Set<Set<T>> els = new HashSet<>();
         els.add(new HashSet<>());
         // Iterator<Set> it;
         // long start = System.currentTimeMillis();
-
         for (int i = 0; i < size; i++) {
             Set<Set<T>> newels = new HashSet<>();
             for (Set<T> s : els) {
@@ -206,11 +221,8 @@ public class JoinOptimizer {
             }
             els = newels;
         }
-
         return els;
-
     }
-
     /**
      * Compute a logical, reasonably efficient join on the specified tables. See
      * PS4 for hints on how this should be implemented.
@@ -231,14 +243,41 @@ public class JoinOptimizer {
      *             when stats or filter selectivities is missing a table in the
      *             join, or or when another internal error occurs
      */
+    // 返回应该指定的join顺序
+    // stats : key: tableName, value: TableStats
     public List<LogicalJoinNode> orderJoins(
             Map<String, TableStats> stats,
             Map<String, Double> filterSelectivities, boolean explain)
             throws ParsingException {
+            List<LogicalJoinNode> result;
+            PlanCache planCache = new PlanCache();
+            Set<Set<LogicalJoinNode>> subSets = null;
+            //subSets:所有join的子集合
+            for(int i = 1; i <= joins.size(); ++i) {
+                // 生成了长度为 i 的子集合
+                subSets = enumerateSubsets(joins, i);
+                for(Set<LogicalJoinNode> subSet : subSets) {
+                    // 对于每个子集合, 计算生成该集合需要的最优方案.该循环就是用来生成最优方案
+                    double costSoFar = Double.MAX_VALUE;
+                    // 该集合最后一步是由jNode join 所完成构成的最优方案
+                    for(LogicalJoinNode jNode : subSet) {
+                        CostCard costCard = computeCostAndCardOfSubplan(stats, filterSelectivities,
+                                jNode, subSet, costSoFar, planCache);
+                        if(costCard == null) continue;
+                        if(costCard.cost < costSoFar)
+                            costSoFar = costCard.cost;
+                        // 将形成的最优方案加入到planCache中
+                        planCache.addPlan(subSet, costSoFar, costCard.card, costCard.plan);
 
-        // some code goes here
-        //Replace the following
-        return joins;
+                    }
+                }
+            }
+            Set<LogicalJoinNode> tmp = null;
+            for(Set<LogicalJoinNode> set : subSets)
+                tmp = set;
+            result = planCache.getOrder(tmp);
+
+            return result;
     }
 
     // ===================== Private Methods =================================
@@ -274,12 +313,14 @@ public class JoinOptimizer {
      *             tables involved in join
      */
     @SuppressWarnings("unchecked")
+    // 计算 join joinToRemove to { joinSet - joinToRemove } 的最佳方法
     private CostCard computeCostAndCardOfSubplan(
             Map<String, TableStats> stats,
             Map<String, Double> filterSelectivities,
             LogicalJoinNode joinToRemove, Set<LogicalJoinNode> joinSet,
             double bestCostSoFar, PlanCache pc) throws ParsingException {
 
+        // joinToRemove中包含着需要join的两个表的名字和域名
         LogicalJoinNode j = joinToRemove;
 
         List<LogicalJoinNode> prevBest;
@@ -296,6 +337,7 @@ public class JoinOptimizer {
         String table1Alias = j.t1Alias;
         String table2Alias = j.t2Alias;
 
+        // get set: joinSet - joinToRemove
         Set<LogicalJoinNode> news = new HashSet<>(joinSet);
         news.remove(j);
 
@@ -329,6 +371,7 @@ public class JoinOptimizer {
 
             double prevBestCost = pc.getCost(news);
             int bestCard = pc.getCard(news);
+
 
             // estimate cost of right subtree
             if (doesJoin(prevBest, table1Alias)) { // j.t1 is in prevBest

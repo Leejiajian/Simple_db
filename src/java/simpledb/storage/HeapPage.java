@@ -1,9 +1,6 @@
 package simpledb.storage;
 
-import simpledb.common.Database;
-import simpledb.common.DbException;
-import simpledb.common.Debug;
-import simpledb.common.Catalog;
+import simpledb.common.*;
 import simpledb.transaction.TransactionId;
 
 import java.util.*;
@@ -27,6 +24,9 @@ public class HeapPage implements Page {
 
     byte[] oldData;
     private final Byte oldDataLock= (byte) 0;
+    private boolean dirty = false;
+    TransactionId dirtyId;
+
 
     /**
      * Create a HeapPage from a set of bytes of data read from disk.
@@ -109,7 +109,7 @@ public class HeapPage implements Page {
     public void setBeforeImage() {
         synchronized(oldDataLock)
         {
-        oldData = getPageData().clone();
+            oldData = getPageData().clone();
         }
     }
 
@@ -248,10 +248,17 @@ public class HeapPage implements Page {
      * @param t The tuple to delete
      */
     public void deleteTuple(Tuple t) throws DbException {
-        // some code goes here
-        // not necessary for lab1
-    }
+        // 比较类时要用 equals, 而不是 ‘ == ’
+        if(!t.getRecordId().getPageId().equals(this.pid)) throw new DbException("No such tuple");
 
+        int tupleNo = t.getRecordId().getTupleNumber();// 得到页中的tuple位置号
+        if(tupleNo < 0 || tuples[tupleNo] == null ||
+                !t.getTupleDesc().equals(td) || !isSlotUsed(tupleNo)) throw new DbException("No such tuple");
+        else {
+            markSlotUsed(tupleNo, false);
+            tuples[tupleNo] = null;
+        }
+    }
     /**
      * Adds the specified tuple to the page;  the tuple should be updated to reflect
      *  that it is now stored on this page.
@@ -260,8 +267,16 @@ public class HeapPage implements Page {
      * @param t The tuple to add.
      */
     public void insertTuple(Tuple t) throws DbException {
-        // some code goes here
-        // not necessary for lab1
+        if(getNumEmptySlots() == 0) throw new DbException("Page is full !!!");
+        if(!t.getTupleDesc().equals(td)) throw new DbException("tupleDescription Mismatch");
+        for(int i = 0; i < tuples.length; ++i) {
+            if(!isSlotUsed(i)) {
+                this.markSlotUsed(i, true);
+                t.setRecordId(new RecordId(this.pid, i));
+                tuples[i] = t;
+                break;
+            }
+        }
     }
 
     /**
@@ -269,17 +284,15 @@ public class HeapPage implements Page {
      * that did the dirtying
      */
     public void markDirty(boolean dirty, TransactionId tid) {
-        // some code goes here
-	// not necessary for lab1
+        this.dirty = dirty;
+        this.dirtyId = tid;
     }
 
     /**
      * Returns the tid of the transaction that last dirtied this page, or null if the page is not dirty
      */
     public TransactionId isDirty() {
-        // some code goes here
-	// Not necessary for lab1
-        return null;      
+        return dirty == true ? this.dirtyId : null;
     }
 
     /**
@@ -292,6 +305,7 @@ public class HeapPage implements Page {
         int extraSlots = numHeader * 8 - numTuple;  // 最后一个字节中不存在的元素个数
         int cnt  = 0;
         for(int i = 0; i < header.length; ++i) {
+
             for(int j = 0; j < 8; ++j) {
                 int bits = (header[i] >> j) & (0x1);
                 if(bits == 1) result += 1;
@@ -299,6 +313,7 @@ public class HeapPage implements Page {
                 if(cnt == numTuple) return (numTuple - result);  // 跳过多余的slot
             }
         }
+        //return cnt;
         return numTuple - result;
     }
 
@@ -318,51 +333,33 @@ public class HeapPage implements Page {
      * Abstraction to fill or clear a slot on this page.
      */
     private void markSlotUsed(int i, boolean value) {
-        // some code goes here
-        // not necessary for lab1
+        int headerIndex = i / 8;
+        int shift = i % 8;
+        if (value == true) {
+            header[headerIndex] = (byte)(header[headerIndex] | ((0x1) << shift));
+        }
+        else {
+            header[headerIndex] =(byte)(header[headerIndex] & (~((0x1) << shift)));
+        }
     }
 
     /**
      * @return an iterator over all tuples on this page (calling remove on this iterator throws an UnsupportedOperationException)
      * (note that this iterator shouldn't return tuples in empty slots!)
      */
+
     public Iterator<Tuple> iterator() {
-        return new TupleIterator();
-    }
-    private class TupleIterator implements Iterator<Tuple> {
-        private int pos = 0;
-        public TupleIterator() {
-            int flag = 0;
-            for(int i = 0; i < numSlots; ++i) {
-                if(isSlotUsed(i)){
-                    flag = 1;
-                    pos = i;
-                    break;
-                }
+        ArrayList<Tuple> allTuples = new ArrayList<>();
+        for(int i = 0; i < numSlots; ++i) {
+            if(isSlotUsed(i) && tuples[i] != null){
+                allTuples.add(tuples[i]);
             }
-            if(flag == 0) pos = numSlots;  // 判断tuple是否都是null
         }
-        public boolean hasNext(){
-            return pos <= (numSlots - 1);
-        }
-        public Tuple next(){
-            Tuple returnItem = tuples[pos];
-            if(pos == numSlots - 1) {
-                ++pos;
-                return returnItem;
-            }
-            int flag = 0;
-            for(int i = pos+1; i < numSlots; ++i) {
-                if(isSlotUsed(i)){
-                    flag = 1;
-                    pos = i;
-                    break;
-                }
-            }
-            if(flag == 0) pos = numSlots; // 判断是否tuple是否都是null
-            return returnItem;
-        }
+        return allTuples.iterator();
     }
 
 }
+
+
+
 
